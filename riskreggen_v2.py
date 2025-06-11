@@ -242,7 +242,7 @@ class RiskRegisterApp:
         self.config = load_config()
         self.theme = self.config.get("DEFAULT_THEME", "light")
         self._set_theme(self.theme)
-        self.root.title("RiskRegGen (Upgraded)")
+        self.root.title("RiskRegGen")
         self.root.geometry("1280x850")
         self.root.minsize(1000, 700)
         self.model = RiskRegisterModel()
