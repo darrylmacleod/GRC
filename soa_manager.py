@@ -5,12 +5,20 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 from fpdf import FPDF
+import logging
 
 try:
-    from ttkthemes import ThemedTk  # Optional for extra theme
+    from ttkthemes import ThemedTk
     THEMED = True
 except ImportError:
     THEMED = False
+
+# Setup logging
+logging.basicConfig(
+    filename='soa_manager.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s'
+)
 
 CONTROLS_2022 = [
     ("A.5.1", "Policies for information security"),
@@ -115,7 +123,10 @@ def create_tooltip(widget, text):
         tipwindow = tw = tk.Toplevel(widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID, borderwidth=1, font=("tahoma", "8", "normal"))
+        label = tk.Label(
+            tw, text=text, justify=tk.LEFT, background="#ffffe0",
+            relief=tk.SOLID, borderwidth=1, font=("tahoma", "8", "normal")
+        )
         label.pack(ipadx=1)
     def leave(event):
         nonlocal tipwindow
@@ -143,10 +154,24 @@ class SoAApp:
         style.configure("Treeview", font=('Segoe UI', 9))
         style.map("TButton", foreground=[('active', '#0053ba')])
 
+        # Optional: Theme selector
+        if THEMED:
+            theme_frame = ttk.Frame(self.root)
+            theme_frame.grid(row=0, column=0, sticky="ew")
+            ttk.Label(theme_frame, text="Theme:").pack(side="left", padx=3)
+            theme_cb = ttk.Combobox(
+                theme_frame, values=self.root.get_themes(), width=20, state="readonly"
+            )
+            theme_cb.pack(side="left", padx=3)
+            theme_cb.set(self.root.get_theme())
+            def set_theme(event):
+                self.root.set_theme(theme_cb.get())
+            theme_cb.bind('<<ComboboxSelected>>', set_theme)
+
         big_frame = ttk.Frame(self.root, padding="10 10 10 10")
-        big_frame.grid(row=0, column=0, sticky="nsew")
+        big_frame.grid(row=1, column=0, sticky="nsew")
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
         big_frame.columnconfigure(1, weight=1)
 
         entry_frame = ttk.LabelFrame(big_frame, text="Add/Edit Control", padding="10 10 10 10")
@@ -156,22 +181,22 @@ class SoAApp:
         self.control_id = ttk.Combobox(entry_frame, values=list(CONTROL_DICT.keys()), state="readonly", width=20)
         self.control_id.grid(row=0, column=1, sticky="ew", padx=5)
         self.control_id.bind("<<ComboboxSelected>>", self.autofill_title)
-        create_tooltip(self.control_id, "Select a control from the list.")
+        create_tooltip(self.control_id, "Select a control from the list. Required.")
 
         ttk.Label(entry_frame, text="Control Title:").grid(row=0, column=2, sticky="e")
         self.control_title = ttk.Entry(entry_frame, width=50)
         self.control_title.grid(row=0, column=3, sticky="ew", padx=5)
-        create_tooltip(self.control_title, "The title will auto-fill when you select a Control ID.")
+        create_tooltip(self.control_title, "The title will auto-fill when you select a Control ID. Required.")
 
         ttk.Label(entry_frame, text="Applicable?").grid(row=1, column=0, sticky="e")
         self.applicability = ttk.Combobox(entry_frame, values=["Yes", "No"], state="readonly", width=20)
         self.applicability.grid(row=1, column=1, sticky="ew", padx=5)
-        create_tooltip(self.applicability, "Is this control applicable?")
+        create_tooltip(self.applicability, "Is this control applicable? Choose Yes or No.")
 
         ttk.Label(entry_frame, text="Justification:").grid(row=1, column=2, sticky="e")
         self.justification = ttk.Entry(entry_frame, width=50)
         self.justification.grid(row=1, column=3, sticky="ew", padx=5)
-        create_tooltip(self.justification, "Provide justification for applicability.")
+        create_tooltip(self.justification, "Provide justification for applicability (required if 'No').")
 
         ttk.Label(entry_frame, text="Implementation Status:").grid(row=2, column=0, sticky="e")
         self.status = ttk.Combobox(entry_frame, values=["Implemented", "Planned", "Not Implemented"], state="readonly", width=20)
@@ -191,10 +216,10 @@ class SoAApp:
         btn_frame = ttk.Frame(big_frame)
         btn_frame.grid(row=1, column=0, sticky='w', padx=5, pady=5)
         ttk.Button(btn_frame, text="Add Control", command=self.add_control).grid(row=0, column=0, padx=2)
-        ttk.Button(btn_frame, text="Export CSV", command=self.export_csv).grid(row=0, column=1, padx=2)
-        ttk.Button(btn_frame, text="Import CSV", command=self.import_csv).grid(row=0, column=2, padx=2)
-        ttk.Button(btn_frame, text="Export Excel", command=self.export_excel).grid(row=0, column=3, padx=2)
-        ttk.Button(btn_frame, text="Import Excel", command=self.import_excel).grid(row=0, column=4, padx=2)
+        ttk.Button(btn_frame, text="Export CSV", command=lambda: self.export_file('csv')).grid(row=0, column=1, padx=2)
+        ttk.Button(btn_frame, text="Import CSV", command=lambda: self.import_file('csv')).grid(row=0, column=2, padx=2)
+        ttk.Button(btn_frame, text="Export Excel", command=lambda: self.export_file('xlsx')).grid(row=0, column=3, padx=2)
+        ttk.Button(btn_frame, text="Import Excel", command=lambda: self.import_file('xlsx')).grid(row=0, column=4, padx=2)
         ttk.Button(btn_frame, text="Export PDF", command=self.export_pdf).grid(row=0, column=5, padx=2)
 
         tree_frame = ttk.Frame(big_frame)
@@ -225,6 +250,15 @@ class SoAApp:
         self.tree.tag_configure('oddrow', background='#f6f6fc')
         self.tree.tag_configure('evenrow', background='#e9f5fd')
 
+    def validate_entry(self, entry):
+        if not entry["Control ID"]:
+            return False, "Control ID is required."
+        if not entry["Control Title"]:
+            return False, "Control Title is required."
+        if entry["Applicability"] == "No" and not entry["Justification"]:
+            return False, "Justification is required if Applicability is 'No'."
+        return True, ""
+
     def add_control(self):
         entry = {
             "Control ID": self.control_id.get(),
@@ -235,58 +269,56 @@ class SoAApp:
             "Responsible Party": self.owner.get(),
             "Evidence Location": self.evidence.get()
         }
-        if not entry["Control ID"] or not entry["Control Title"]:
-            messagebox.showwarning("Missing Data", "Please select a Control ID and Title.")
+        valid, msg = self.validate_entry(entry)
+        if not valid:
+            messagebox.showwarning("Missing Data", msg)
+            logging.warning(f"Add Control failed: {msg}")
             return
         self.soa_df.loc[len(self.soa_df)] = entry
         self.refresh_table()
         messagebox.showinfo("Success", "Control added.")
+        logging.info(f"Control added: {entry['Control ID']}")
 
-    def export_csv(self):
-        path = filedialog.asksaveasfilename(defaultextension=".csv")
+    def export_file(self, filetype):
+        filetypes = {
+            'csv': (("CSV files", "*.csv"), ".csv"),
+            'xlsx': (("Excel files", "*.xlsx"), ".xlsx")
+        }
+        label, ext = filetypes[filetype]
+        path = filedialog.asksaveasfilename(defaultextension=ext, filetypes=[label])
         if path:
             try:
-                self.soa_df.to_csv(path, index=False)
-                messagebox.showinfo("Success", f"CSV saved to {path}")
+                if filetype == 'csv':
+                    self.soa_df.to_csv(path, index=False)
+                elif filetype == 'xlsx':
+                    self.soa_df.to_excel(path, index=False, engine='openpyxl')
+                messagebox.showinfo("Success", f"{filetype.upper()} saved to {path}")
+                logging.info(f"Exported {filetype.upper()} to {path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to export CSV: {e}")
+                messagebox.showerror("Error", f"Failed to export {filetype.upper()}: {e}")
+                logging.error(f"Export {filetype.upper()} failed: {e}")
 
-    def import_csv(self):
-        path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    def import_file(self, filetype):
+        filetypes = {
+            'csv': (("CSV files", "*.csv"), pd.read_csv),
+            'xlsx': (("Excel files", "*.xlsx"), lambda p: pd.read_excel(p, engine='openpyxl'))
+        }
+        label, loader = filetypes[filetype]
+        path = filedialog.askopenfilename(filetypes=[label])
         if path:
             try:
-                df = pd.read_csv(path)
+                df = loader(path)
                 if set(SOA_COLUMNS).issubset(df.columns):
                     self.soa_df = df[SOA_COLUMNS]
                     self.refresh_table()
-                    messagebox.showinfo("Success", "CSV imported.")
+                    messagebox.showinfo("Success", f"{filetype.upper()} imported.")
+                    logging.info(f"Imported {filetype.upper()} from {path}")
                 else:
-                    messagebox.showerror("Error", "CSV columns do not match expected format.")
+                    messagebox.showerror("Error", f"{filetype.upper()} columns do not match expected format.")
+                    logging.warning(f"Import {filetype.upper()} failed: columns mismatch")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to import CSV: {e}")
-
-    def export_excel(self):
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx")
-        if path:
-            try:
-                self.soa_df.to_excel(path, index=False, engine='openpyxl')
-                messagebox.showinfo("Success", f"Excel saved to {path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to export Excel: {e}")
-
-    def import_excel(self):
-        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-        if path:
-            try:
-                df = pd.read_excel(path, engine='openpyxl')
-                if set(SOA_COLUMNS).issubset(df.columns):
-                    self.soa_df = df[SOA_COLUMNS]
-                    self.refresh_table()
-                    messagebox.showinfo("Success", "Excel imported.")
-                else:
-                    messagebox.showerror("Error", "Excel columns do not match expected format.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to import Excel: {e}")
+                messagebox.showerror("Error", f"Failed to import {filetype.upper()}: {e}")
+                logging.error(f"Import {filetype.upper()} failed: {e}")
 
     def export_pdf(self):
         class SoAPDF(FPDF):
@@ -298,14 +330,17 @@ class SoAApp:
             def soa_table(self, df):
                 self.set_font("Arial", "B", 8)
                 headers = df.columns.tolist()
-                col_widths = [20, 40, 15, 30, 25, 25, 40]
+                col_widths = []
                 for i, header in enumerate(headers):
-                    self.cell(col_widths[i], 6, header[:15], border=1, align="C")
+                    max_len = max([len(str(header))] + [len(str(row[header])) for _, row in df.iterrows()])
+                    col_widths.append(min(max(20, max_len * 2.5), 45))
+                for i, header in enumerate(headers):
+                    self.cell(col_widths[i], 6, header[:20], border=1, align="C")
                 self.ln()
                 self.set_font("Arial", "", 8)
                 for _, row in df.iterrows():
                     for i, header in enumerate(headers):
-                        text = str(row[header])[:30]
+                        text = str(row[header])[:40]
                         self.cell(col_widths[i], 6, text, border=1)
                     self.ln()
                     if self.get_y() > 260:
@@ -315,20 +350,22 @@ class SoAApp:
             def soa_table_headers(self, headers, col_widths):
                 self.set_font("Arial", "B", 8)
                 for i, header in enumerate(headers):
-                    self.cell(col_widths[i], 6, header[:15], border=1, align="C")
+                    self.cell(col_widths[i], 6, header[:20], border=1, align="C")
                 self.ln()
                 self.set_font("Arial", "", 8)
 
         pdf = SoAPDF()
         pdf.add_page()
         pdf.soa_table(self.soa_df)
-        path = filedialog.asksaveasfilename(defaultextension=".pdf")
+        path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
         if path:
             try:
                 pdf.output(path)
                 messagebox.showinfo("Success", f"PDF saved to {path}")
+                logging.info(f"Exported PDF to {path}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to export PDF: {e}")
+                logging.error(f"Export PDF failed: {e}")
 
 if __name__ == "__main__":
     if THEMED:
